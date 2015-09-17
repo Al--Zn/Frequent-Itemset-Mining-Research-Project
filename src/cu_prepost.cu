@@ -8,6 +8,7 @@
 #define MAX_CHAR_PER_LINE 500
 #define MAX_ITEM_PER_TRANS 1000
 #define MAX_DEPTH 16
+#define MAX_THREAD 1024
 
 using namespace std;
 
@@ -253,7 +254,7 @@ void buildPPCTree() {
 	headTable = new PPCTreeNode*[numOfFreqItems];
 	memset(headTable, 0, sizeof(PPCTreeNode*) * numOfFreqItems);
 	headTableLen = new int[numOfFreqItems];
-	memset(headTableLen, 0, sizeof(int*) * numOfFreqItems);
+	memset(headTableLen, 0, sizeof(int) * numOfFreqItems);
 	PPCTreeNode **tempHead = new PPCTreeNode*[numOfFreqItems];
 
 	itemsetCount = new int[(numOfFreqItems - 1) * numOfFreqItems / 2];
@@ -314,7 +315,7 @@ __global__ void generateNextLevel(struct NList *dCurNLists, int *dCurPres, int *
 
 void mining() {
 	hCurNListNum = numOfFreqItems;
-	for (int depth = 1; i < MAX_DEPTH; ++i) {
+	for (int depth = 1; depth < MAX_DEPTH; ++depth) {
 		int maxNListNum = hCurNListNum * (hCurNListNum - 1) / 2;
 		cudaMemcpy(dCurNLists, hCurNLists, sizeof(NList) * hCurNListNum, cudaMemcpyHostToDevice);
 		cudaMalloc(&dNextNLists, sizeof(NList) * maxNListNum);
@@ -323,26 +324,28 @@ void mining() {
 		cudaMalloc(&dNextCounts, sizeof(int) * maxNListNum * hCurMaxLen);
 		cudaMemset(&dCurNListNum, 0, sizeof(int));
 		cudaMemset(&dCurMaxLen, 0, sizeof(int));
-		generateNextLevel<<<max(curNListNum/MAX_THREAD, 1), min(MAX_THREAD, curNListNum)>>>
+		generateNextLevel<<<max(hCurNListNum/MAX_THREAD, 1), min(MAX_THREAD, hCurNListNum)>>>
 		(dCurNLists, dCurPres, dCurPosts, dCurCounts, dNextNLists, dNextPres, dNextPosts, dNextCounts, dCurNListNum, dCurMaxLen);
 		cudaMemcpy(dCurNListNum, &hCurNListNum, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaMemcpy(dCurMaxLen, &hCurMaxLen, sizeof(int), cudaMemcpyDeviceToHost);
 		hCurNLists = new NList[hCurNListNum];
 		cudaMemcpy(dNextNLists, hCurNLists, sizeof(NList) * hCurNListNum, cudaMemcpyDeviceToHost);
 		cudaFree(dCurNLists);
-		dCurNlists = dNextNLists;
+		dCurNLists = dNextNLists;
 	}
 }
 int main(int argc, char **argv) {
 	supportRate = 0.4;
-	fileName = "/Users/lx/Frequent-Itemset-Mining-Research-Project/dataset/little.dat";
+	fileName = "/home/manycore/users/jtyuan/GPUApriori-master/mushroom.dat";
 	readFile();
 	buildPPCTree();
 	initNList();
+	initDeviceMem();
+	mining();
 	// test the correctness of prepost value
-	// for (int i = 0; i < totalNListLen; ++i) {
-	// 	printf("(%d, %d, %d)", hPres[i], hPosts[i], hCounts[i]);
-	// }
+	for (int i = 0; i < totalNListLen; ++i) {
+		printf("(%d, %d, %d)", hPres[i], hPosts[i], hCounts[i]);
+	}
 	printf("Minsup: %d TransNum: %d FreqItemNum: %d TotalItemNum: %d NodeNum: %d", minSupport, numOfTrans, numOfFreqItems, numOfTotalItems, totalNListLen);
 
 
